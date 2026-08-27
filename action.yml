@@ -60,6 +60,18 @@ inputs:
     description: 'The Issue number.'
     required: false
     default: '${{ github.event.issue.number }}'
+  additional_gh_tools:
+    description: 'Additional allowed GH tools. Expected format : comat separated list'
+    required: False
+    default: ''
+  jira_url:
+    description: 'JIRA url'
+    required: false
+    default: ""
+  jira_email:
+    description: 'JIRA email'
+    required: false
+    default: ""
 
 outputs:
   response:
@@ -129,3 +141,7 @@ runs:
         IS_PULL_REQUEST: '${{ !!github.event.pull_request }}'
         ISSUE_NUMBER: '${{ github.event.pull_request.number || github.event.issue.number }}'
         GITHUB_ACTION_PATH: '${{ github.action_path }}'
+        ADDITIONAL_GH_TOOLS: '${{ inputs.additional_gh_tools }}'
+        JIRA_URL: '${{ inputs.jira_url }}'
+        JIRA_EMAIL: '${{ inputs.jira_email }}'
+        JIRA_API_TOKEN: '${{ secrets.JIRA_API_TOKEN }}'

@@ -27,16 +27,17 @@ except ImportError:
     )
     sys.exit(1)
 
-
 # Robust TOML Parser with fallback
 try:
     import tomllib
+
 
     def load_toml(f) -> dict:
         return tomllib.load(f)
 except ImportError:
     try:
         import tomli
+
 
         def load_toml(f) -> dict:
             return tomli.load(f)
@@ -59,6 +60,7 @@ except ImportError:
                     data["description"] = desc_match.group(1).strip()
                 return data
 
+
         def load_toml(f) -> dict:
             return SimpleTomlParser.load(f)
 
@@ -76,6 +78,8 @@ async def main() -> None:
     additional_context = os.environ.get("ADDITIONAL_CONTEXT", "")
     prompt_text = os.environ.get("PROMPT", "").strip()
     trust_workspace = os.environ.get("TRUST_WORKSPACE") == "true"
+    jira_mcp_api_token = os.environ.get("JIRA_API_TOKEN", False)
+    additional_gh_tools = os.environ.get("ADDITIONAL_GH_TOOLS", "").split(",")
 
     if not api_key:
         print(
@@ -146,6 +150,25 @@ async def main() -> None:
 
     # 3. MCP Server Configuration
     # We configure the GitHub stdio MCP server for GitHub operations
+
+    enabled_tools = [
+        "add_comment_to_pending_review",
+        "pull_request_read",
+        "pull_request_review_write",
+        "add_issue_comment",
+        "issue_read",
+        "list_issues",
+        "search_issues",
+        "list_pull_requests",
+        "search_pull_requests",
+        "get_commit",
+        "get_file_contents",
+        "list_commits",
+        "search_code",
+        "create_pull_request"
+    ]
+    enabled_tools.extend(additional_gh_tools)
+
     github_mcp = types.McpStdioServer(
         name="github",
         command="docker",
@@ -157,23 +180,27 @@ async def main() -> None:
             "GITHUB_PERSONAL_ACCESS_TOKEN",
             "ghcr.io/github/github-mcp-server:v0.27.0",
         ],
-        enabled_tools=[
-            "add_comment_to_pending_review",
-            "pull_request_read",
-            "pull_request_review_write",
-            "add_issue_comment",
-            "issue_read",
-            "list_issues",
-            "search_issues",
-            "list_pull_requests",
-            "search_pull_requests",
-            "get_commit",
-            "get_file_contents",
-            "list_commits",
-            "search_code",
-            "create_pull_request"
-        ],
+        enabled_tools=enabled_tools,
     )
+
+    if jira_mcp_api_token:
+        jira_mcp = types.McpStdioServer(
+            name="jira",
+            command="docker",
+            args=[
+                "run",
+                "-i",
+                "--rm",
+                "-e",
+                "JIRA_URL",
+                "-e",
+                "JIRA_EMAIL"
+                "-e",
+                "JIRA_API_TOKEN",
+                "ghcr.io/github/github-mcp-server:v0.27.0",
+            ],
+            enabled_tools=["jira_read", "jira_schema"],
+        )
 
     # 4. Declarative Safety Policies
     if prompt_text.startswith("/"):
@@ -182,6 +209,7 @@ async def main() -> None:
         policies = [
             policy.deny_all(),
             policy.allow(github_mcp),
+            policy.allow(jira_mcp),
             policy.allow("view_file"),
             policy.allow("find_file"),
         ]
@@ -196,7 +224,7 @@ async def main() -> None:
     config = LocalAgentConfig(
         api_key=api_key,
         system_instructions=system_instructions,
-        mcp_servers=[github_mcp],
+        mcp_servers=[github_mcp, jira_mcp],
         policies=policies,
         workspaces=[os.getcwd()],
     )
