@@ -171,6 +171,7 @@ async def main() -> None:
             "get_file_contents",
             "list_commits",
             "search_code",
+            "create_pull_request"
         ],
     )
 
