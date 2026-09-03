@@ -227,6 +227,11 @@ async def main() -> None:
         mcp_servers=[github_mcp, jira_mcp],
         policies=policies,
         workspaces=[os.getcwd()],
+        capabilities=types.CapabilitiesConfig(
+            enable_subagents=True,
+            disabled_tools=[
+                types.BuiltinTools.ASK_QUESTION,
+            ]),
     )
 
     print("Starting Antigravity Agent...")
@@ -234,6 +239,14 @@ async def main() -> None:
         response = await agent.chat(chat_prompt)
 
         print("\n::: Agent Session Execution :::")
+
+        print("  Agent (Streaming thoughts):")
+        print("  -------------------------------------------------------")
+        async for thought in response.thoughts:
+            print(thought, end="", flush=True)
+        print("\n  -------------------------------------------------------\n")
+
+        print("  Agent (Streaming final answer):")
         full_response_text = []
         async for token in response:
             sys.stdout.write(token)
