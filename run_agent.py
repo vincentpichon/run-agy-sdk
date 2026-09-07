@@ -182,6 +182,23 @@ async def main() -> None:
         ],
         enabled_tools=enabled_tools,
     )
+    mcp_servers = [github_mcp]
+    # 4. Declarative Safety Policies
+    if prompt_text.startswith("/"):
+        # For reviews or automated tasks, deny shell/arbitrary code execution completely
+        # and only allow safe MCP/GitHub tools and file views.
+        policies = [
+            policy.deny_all(),
+            policy.allow(github_mcp),
+            policy.allow("view_file"),
+            policy.allow("find_file"),
+        ]
+    else:
+        # For general goals, respect trust_workspace setting
+        if trust_workspace:
+            policies = [policy.allow_all()]
+        else:
+            policies = policy.confirm_run_command()
 
     if jira_mcp_api_token:
         jira_mcp = types.McpStdioServer(
@@ -201,30 +218,14 @@ async def main() -> None:
             ],
             enabled_tools=["jira_read", "jira_schema"],
         )
-
-    # 4. Declarative Safety Policies
-    if prompt_text.startswith("/"):
-        # For reviews or automated tasks, deny shell/arbitrary code execution completely
-        # and only allow safe MCP/GitHub tools and file views.
-        policies = [
-            policy.deny_all(),
-            policy.allow(github_mcp),
-            policy.allow(jira_mcp),
-            policy.allow("view_file"),
-            policy.allow("find_file"),
-        ]
-    else:
-        # For general goals, respect trust_workspace setting
-        if trust_workspace:
-            policies = [policy.allow_all()]
-        else:
-            policies = policy.confirm_run_command()
+        policies.append(policy.allow(jira_mcp))
+        mcp_servers.append(jira_mcp)
 
     # 5. Initialize and run Agent
     config = LocalAgentConfig(
         api_key=api_key,
         system_instructions=system_instructions,
-        mcp_servers=[github_mcp, jira_mcp],
+        mcp_servers=mcp_servers,
         policies=policies,
         workspaces=[os.getcwd()],
         capabilities=types.CapabilitiesConfig(
