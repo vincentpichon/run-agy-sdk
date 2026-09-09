@@ -76,6 +76,10 @@ inputs:
     description: 'python version to use'
     required: false
     default: '3.13'
+  use-available-python:
+    description: 'Use already installed python-version'
+    required: false
+    default: 'false'
 
 outputs:
   response:
@@ -89,6 +93,7 @@ runs:
   using: 'composite'
   steps:
     - name: 'Set up Python'
+      if: ${{ inputs.use-available-python != 'true' }}
       uses: 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' # ratchet:actions/setup-python@v7.0.0
       with:
         python-version: '${{ inputs.python-version }}'
