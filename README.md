@@ -65,6 +65,31 @@ jobs:
 
 For a complete workflow template that supports both **Automated PR Auditing** (runs automatically on code updates) and **Comment-Triggered Reviews** (triggered via PR comments), please refer to the reference workflow in [.github/workflows/antigravity-autonomous-review.yml](.github/workflows/antigravity-autonomous-review.yml).
 
+### 3. Read-only issue / discussion planning (`/antigravity-plan`)
+
+The `/antigravity-plan` command reads a GitHub issue or discussion through the GitHub MCP server, explores the repository read-only (following `AGENTS.md` and `.agents/skills`), and returns a Markdown `## Analysis` and `## Development plan` in the `response` output. It never writes to GitHub: write tools are removed from the MCP server for this command, and the calling workflow is responsible for posting the result.
+
+| Input | Description |
+| --- | --- |
+| `item_type` | `issue` or `discussion` (required by `/antigravity-plan`) |
+| `item_number` | Number of the issue or discussion (required by `/antigravity-plan`) |
+
+The item body is never injected into the prompt; the agent reads it itself and treats it as untrusted data. When `item_type` is `discussion`, `get_discussion` and `get_discussion_comments` are enabled and the server is started with `GITHUB_TOOLSETS=default,discussions`.
+
+```yaml
+      - name: 'Plan issue'
+        uses: 'vincentpichon/run-agy-sdk@ai-plan'
+        id: 'agy_plan'
+        with:
+          api-key: '${{ secrets.ANTIGRAVITY_API_KEY }}'
+          prompt: '/antigravity-plan'
+          item_type: 'issue'
+          item_number: '${{ github.event.issue.number }}'
+      # Post ${{ steps.agy_plan.outputs.response }} from a later step (e.g. with gh / actions/github-script)
+```
+
+`additional_gh_tools` accepts a comma-separated list of extra GitHub MCP tools; empty entries are ignored.
+
 ## 🤝 Acknowledgments
 
 This project is inspired by [run-gemini-cli](https://github.com/google-github-actions/run-gemini-cli).

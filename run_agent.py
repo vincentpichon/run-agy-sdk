@@ -65,6 +65,21 @@ except ImportError:
             return SimpleTomlParser.load(f)
 
 
+# Commands that only analyse GitHub content and must not write anything
+READ_ONLY_COMMANDS = {"antigravity-plan"}
+
+# Discussion read tools (github-mcp-server "discussions" toolset)
+DISCUSSION_READ_TOOLS = ["get_discussion", "get_discussion_comments"]
+
+# GitHub MCP tools with side effects, removed for read-only commands
+GITHUB_WRITE_TOOLS = {
+    "add_comment_to_pending_review",
+    "pull_request_review_write",
+    "add_issue_comment",
+    "create_pull_request",
+}
+
+
 async def main() -> None:
     # 1. Retrieve environment variables
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("ANTIGRAVITY_API_KEY")
@@ -79,7 +94,13 @@ async def main() -> None:
     prompt_text = os.environ.get("PROMPT", "").strip()
     trust_workspace = os.environ.get("TRUST_WORKSPACE") == "true"
     jira_mcp_api_token = os.environ.get("JIRA_API_TOKEN", False)
-    additional_gh_tools = os.environ.get("ADDITIONAL_GH_TOOLS", "").split(",")
+    additional_gh_tools = [
+        tool.strip()
+        for tool in os.environ.get("ADDITIONAL_GH_TOOLS", "").split(",")
+        if tool.strip()
+    ]
+    item_type = os.environ.get("ITEM_TYPE", "").strip().lower()
+    item_number = os.environ.get("ITEM_NUMBER", "").strip()
 
     if not api_key:
         print(
@@ -99,9 +120,22 @@ async def main() -> None:
     # 2. TOML Command Parsing & Variable Interpolation
     system_instructions = "You are a helpful software engineering assistant."
     chat_prompt = prompt_text
+    command_name = prompt_text[1:] if prompt_text.startswith("/") else ""
+    read_only_command = command_name in READ_ONLY_COMMANDS
+
+    if read_only_command:
+        if item_type not in ("issue", "discussion"):
+            print(
+                f"::error::Command /{command_name} requires 'item_type' to be 'issue' or 'discussion'."
+            )
+            sys.exit(1)
+        if not item_number.isdigit():
+            print(
+                f"::error::Command /{command_name} requires a numeric 'item_number'."
+            )
+            sys.exit(1)
 
     if prompt_text.startswith("/"):
-        command_name = prompt_text[1:]
         # Prevent directory traversal attacks
         if ".." in command_name or "/" in command_name or "\\" in command_name:
             print(
@@ -168,18 +202,30 @@ async def main() -> None:
         "create_pull_request"
     ]
     enabled_tools.extend(additional_gh_tools)
+    if item_type == "discussion":
+        enabled_tools.extend(DISCUSSION_READ_TOOLS)
+    if read_only_command:
+        # Read-only commands must never write to GitHub, whatever the caller allows
+        enabled_tools = [tool for tool in enabled_tools if tool not in GITHUB_WRITE_TOOLS]
+    # Deduplicate while preserving order
+    enabled_tools = list(dict.fromkeys(enabled_tools))
+
+    docker_args = [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+    ]
+    if any(tool in DISCUSSION_READ_TOOLS for tool in enabled_tools):
+        # Discussion tools are not part of the server's default toolsets
+        docker_args += ["-e", "GITHUB_TOOLSETS=default,discussions"]
+    docker_args.append("ghcr.io/github/github-mcp-server:v0.27.0")
 
     github_mcp = types.McpStdioServer(
         name="github",
         command="docker",
-        args=[
-            "run",
-            "-i",
-            "--rm",
-            "-e",
-            "GITHUB_PERSONAL_ACCESS_TOKEN",
-            "ghcr.io/github/github-mcp-server:v0.27.0",
-        ],
+        args=docker_args,
         enabled_tools=enabled_tools,
     )
     mcp_servers = [github_mcp]
