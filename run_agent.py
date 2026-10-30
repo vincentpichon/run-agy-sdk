@@ -227,6 +227,9 @@ async def main() -> None:
     if any(tool in DISCUSSION_READ_TOOLS for tool in enabled_tools):
         # Discussion tools are not part of the server's default toolsets
         docker_args += ["-e", "GITHUB_TOOLSETS=default,discussions"]
+    if read_only_command:
+        # Make the server itself refuse write tools
+        docker_args += ["-e", "GITHUB_READ_ONLY=1"]
     docker_args.append("ghcr.io/github/github-mcp-server:v0.27.0")
 
     github_mcp = types.McpStdioServer(
