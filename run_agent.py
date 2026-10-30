@@ -71,12 +71,19 @@ READ_ONLY_COMMANDS = {"antigravity-plan"}
 # Discussion read tools (github-mcp-server "discussions" toolset)
 DISCUSSION_READ_TOOLS = ["get_discussion", "get_discussion_comments"]
 
-# GitHub MCP tools with side effects, removed for read-only commands
-GITHUB_WRITE_TOOLS = {
-    "add_comment_to_pending_review",
-    "pull_request_review_write",
-    "add_issue_comment",
-    "create_pull_request",
+# Only GitHub MCP tools allowed for read-only commands (allowlist)
+GITHUB_READ_TOOLS = {
+    "issue_read",
+    "list_issues",
+    "search_issues",
+    "pull_request_read",
+    "list_pull_requests",
+    "search_pull_requests",
+    "get_commit",
+    "list_commits",
+    "get_file_contents",
+    "search_code",
+    *DISCUSSION_READ_TOOLS,
 }
 
 
@@ -129,7 +136,7 @@ async def main() -> None:
                 f"::error::Command /{command_name} requires 'item_type' to be 'issue' or 'discussion'."
             )
             sys.exit(1)
-        if not item_number.isdigit():
+        if not re.fullmatch(r"[1-9][0-9]*", item_number):
             print(
                 f"::error::Command /{command_name} requires a numeric 'item_number'."
             )
@@ -202,11 +209,11 @@ async def main() -> None:
         "create_pull_request"
     ]
     enabled_tools.extend(additional_gh_tools)
-    if item_type == "discussion":
-        enabled_tools.extend(DISCUSSION_READ_TOOLS)
     if read_only_command:
-        # Read-only commands must never write to GitHub, whatever the caller allows
-        enabled_tools = [tool for tool in enabled_tools if tool not in GITHUB_WRITE_TOOLS]
+        if item_type == "discussion":
+            enabled_tools.extend(DISCUSSION_READ_TOOLS)
+        # Read-only commands only get read tools, whatever the caller allows
+        enabled_tools = [tool for tool in enabled_tools if tool in GITHUB_READ_TOOLS]
     # Deduplicate while preserving order
     enabled_tools = list(dict.fromkeys(enabled_tools))
 
