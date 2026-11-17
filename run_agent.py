@@ -13,9 +13,12 @@
 # limitations under the License.
 
 import asyncio
+import functools
 import os
 import re
 import sys
+
+from google.antigravity.hooks.policy_test import RunCommandArgs
 
 # Attempt to import Antigravity SDK
 try:
@@ -64,7 +67,6 @@ except ImportError:
         def load_toml(f) -> dict:
             return SimpleTomlParser.load(f)
 
-
 # Commands that only analyse GitHub content and must not write anything
 READ_ONLY_COMMANDS = {"antigravity-plan"}
 
@@ -85,6 +87,10 @@ GITHUB_READ_TOOLS = {
     "search_code",
     *DISCUSSION_READ_TOOLS,
 }
+
+
+def block_run_command(blocked_command: str, args: RunCommandArgs) -> bool:
+    return blocked_command in args.command_line
 
 
 async def main() -> None:
@@ -252,7 +258,15 @@ async def main() -> None:
     else:
         # For general goals, respect trust_workspace setting
         if trust_workspace:
-            policies = [policy.allow_all()]
+            policies = [policy.deny(types.BuiltinTools.RUN_COMMAND.value, 
+                                    when=functools.partial(block_run_command, "rm")),
+                        policy.deny(types.BuiltinTools.RUN_COMMAND.value, 
+                                    when=functools.partial(block_run_command, "ssh")),
+                        policy.deny(types.BuiltinTools.RUN_COMMAND.value,
+                                    when=functools.partial(block_run_command, "sudo")),
+                        policy.deny(types.BuiltinTools.RUN_COMMAND.value,
+                                    when=functools.partial(block_run_command, "su")),
+                        policy.allow_all()]
         else:
             policies = policy.confirm_run_command()
 
