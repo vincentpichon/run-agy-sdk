@@ -60,6 +60,14 @@ inputs:
     description: 'The Issue number.'
     required: false
     default: '${{ github.event.issue.number }}'
+  item_type:
+    description: 'Type of the GitHub item to analyse with /antigravity-plan. Allowed: "issue", "discussion"'
+    required: false
+    default: ''
+  item_number:
+    description: 'Number of the GitHub issue or discussion to analyse with /antigravity-plan'
+    required: false
+    default: ''
   additional_gh_tools:
     description: 'Additional allowed GH tools. Expected format : comat separated list'
     required: False
@@ -152,6 +160,8 @@ runs:
         ISSUE_NUMBER: '${{ github.event.pull_request.number || github.event.issue.number }}'
         GITHUB_ACTION_PATH: '${{ github.action_path }}'
         ADDITIONAL_GH_TOOLS: '${{ inputs.additional_gh_tools }}'
+        ITEM_TYPE: '${{ inputs.item_type }}'
+        ITEM_NUMBER: '${{ inputs.item_number }}'
         JIRA_URL: '${{ inputs.jira_url }}'
         JIRA_EMAIL: '${{ inputs.jira_email }}'
         JIRA_API_TOKEN: '${{ inputs.JIRA_API_TOKEN }}'

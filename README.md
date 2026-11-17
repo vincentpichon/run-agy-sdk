@@ -65,6 +65,34 @@ jobs:
 
 For a complete workflow template that supports both **Automated PR Auditing** (runs automatically on code updates) and **Comment-Triggered Reviews** (triggered via PR comments), please refer to the reference workflow in [.github/workflows/antigravity-autonomous-review.yml](.github/workflows/antigravity-autonomous-review.yml).
 
+### 3. Read-only issue / discussion planning (`/antigravity-plan`)
+
+The `/antigravity-plan` command reads a GitHub issue or discussion through the GitHub MCP server, explores the repository read-only (following `AGENTS.md` and `.agents/skills`), and returns a Markdown `## Analysis` and `## Development plan` in the `response` output. It never writes to GitHub: for this command the GitHub MCP tools are filtered through a read-only allowlist (`issue_read`, `list_issues`, `search_issues`, `pull_request_read`, `list_pull_requests`, `search_pull_requests`, `get_commit`, `list_commits`, `get_file_contents`, `search_code`, `get_discussion`, `get_discussion_comments`), so any other tool passed through `additional_gh_tools` is dropped. In addition, the GitHub MCP server is started in read-only mode (`GITHUB_READ_ONLY=1`), so the server itself refuses write tools. Local tools are limited to `view_file` and `find_file` (no shell). The calling workflow is responsible for posting the result.
+
+| Input | Description |
+| --- | --- |
+| `item_type` | `issue` or `discussion` (required by `/antigravity-plan`) |
+| `item_number` | Positive integer: number of the issue or discussion (required by `/antigravity-plan`) |
+
+The item body is never injected into the prompt; the agent reads it itself and treats it as untrusted data. For `/antigravity-plan` with `item_type: discussion`, `get_discussion` and `get_discussion_comments` are enabled. Whenever one of these discussion tools is enabled (by this command, or explicitly through `additional_gh_tools` for other prompts), the server is started with `GITHUB_TOOLSETS=default,discussions`, because the `discussions` toolset is not part of the server defaults.
+
+> [!WARNING]
+> `additional_context` (or `goal-prompt` as fallback) is interpolated into the agent's **system instructions**. Never pass untrusted text in it (issue/discussion/PR bodies, comments, titles from external contributors); pass only maintainer-controlled instructions.
+
+```yaml
+      - name: 'Plan issue'
+        uses: 'vincentpichon/run-agy-sdk@ai-plan'
+        id: 'agy_plan'
+        with:
+          api-key: '${{ secrets.ANTIGRAVITY_API_KEY }}'
+          prompt: '/antigravity-plan'
+          item_type: 'issue'
+          item_number: '${{ github.event.issue.number }}'
+      # Post ${{ steps.agy_plan.outputs.response }} from a later step (e.g. with gh / actions/github-script)
+```
+
+`additional_gh_tools` accepts a comma-separated list of extra GitHub MCP tools; empty entries are ignored.
+
 ## 🤝 Acknowledgments
 
 This project is inspired by [run-gemini-cli](https://github.com/google-github-actions/run-gemini-cli).

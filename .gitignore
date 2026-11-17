@@ -11,3 +11,6 @@ gemini-artifacts/
 
 # Other tools
 .ruff_cache
+
+# Python bytecode
+__pycache__/

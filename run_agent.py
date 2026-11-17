@@ -13,9 +13,12 @@
 # limitations under the License.
 
 import asyncio
+import functools
 import os
 import re
 import sys
+
+from google.antigravity.hooks.policy_test import RunCommandArgs
 
 # Attempt to import Antigravity SDK
 try:
@@ -64,6 +67,31 @@ except ImportError:
         def load_toml(f) -> dict:
             return SimpleTomlParser.load(f)
 
+# Commands that only analyse GitHub content and must not write anything
+READ_ONLY_COMMANDS = {"antigravity-plan"}
+
+# Discussion read tools (github-mcp-server "discussions" toolset)
+DISCUSSION_READ_TOOLS = ["get_discussion", "get_discussion_comments"]
+
+# Only GitHub MCP tools allowed for read-only commands (allowlist)
+GITHUB_READ_TOOLS = {
+    "issue_read",
+    "list_issues",
+    "search_issues",
+    "pull_request_read",
+    "list_pull_requests",
+    "search_pull_requests",
+    "get_commit",
+    "list_commits",
+    "get_file_contents",
+    "search_code",
+    *DISCUSSION_READ_TOOLS,
+}
+
+
+def block_run_command(blocked_command: str, args: RunCommandArgs) -> bool:
+    return blocked_command in args.command_line
+
 
 async def main() -> None:
     # 1. Retrieve environment variables
@@ -79,7 +107,13 @@ async def main() -> None:
     prompt_text = os.environ.get("PROMPT", "").strip()
     trust_workspace = os.environ.get("TRUST_WORKSPACE") == "true"
     jira_mcp_api_token = os.environ.get("JIRA_API_TOKEN", False)
-    additional_gh_tools = os.environ.get("ADDITIONAL_GH_TOOLS", "").split(",")
+    additional_gh_tools = [
+        tool.strip()
+        for tool in os.environ.get("ADDITIONAL_GH_TOOLS", "").split(",")
+        if tool.strip()
+    ]
+    item_type = os.environ.get("ITEM_TYPE", "").strip().lower()
+    item_number = os.environ.get("ITEM_NUMBER", "").strip()
 
     if not api_key:
         print(
@@ -99,9 +133,22 @@ async def main() -> None:
     # 2. TOML Command Parsing & Variable Interpolation
     system_instructions = "You are a helpful software engineering assistant."
     chat_prompt = prompt_text
+    command_name = prompt_text[1:] if prompt_text.startswith("/") else ""
+    read_only_command = command_name in READ_ONLY_COMMANDS
+
+    if read_only_command:
+        if item_type not in ("issue", "discussion"):
+            print(
+                f"::error::Command /{command_name} requires 'item_type' to be 'issue' or 'discussion'."
+            )
+            sys.exit(1)
+        if not re.fullmatch(r"[1-9][0-9]*", item_number):
+            print(
+                f"::error::Command /{command_name} requires a numeric 'item_number'."
+            )
+            sys.exit(1)
 
     if prompt_text.startswith("/"):
-        command_name = prompt_text[1:]
         # Prevent directory traversal attacks
         if ".." in command_name or "/" in command_name or "\\" in command_name:
             print(
@@ -168,18 +215,33 @@ async def main() -> None:
         "create_pull_request"
     ]
     enabled_tools.extend(additional_gh_tools)
+    if read_only_command:
+        if item_type == "discussion":
+            enabled_tools.extend(DISCUSSION_READ_TOOLS)
+        # Read-only commands only get read tools, whatever the caller allows
+        enabled_tools = [tool for tool in enabled_tools if tool in GITHUB_READ_TOOLS]
+    # Deduplicate while preserving order
+    enabled_tools = list(dict.fromkeys(enabled_tools))
+
+    docker_args = [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+    ]
+    if any(tool in DISCUSSION_READ_TOOLS for tool in enabled_tools):
+        # Discussion tools are not part of the server's default toolsets
+        docker_args += ["-e", "GITHUB_TOOLSETS=default,discussions"]
+    if read_only_command:
+        # Make the server itself refuse write tools
+        docker_args += ["-e", "GITHUB_READ_ONLY=1"]
+    docker_args.append("ghcr.io/github/github-mcp-server:v0.27.0")
 
     github_mcp = types.McpStdioServer(
         name="github",
         command="docker",
-        args=[
-            "run",
-            "-i",
-            "--rm",
-            "-e",
-            "GITHUB_PERSONAL_ACCESS_TOKEN",
-            "ghcr.io/github/github-mcp-server:v0.27.0",
-        ],
+        args=docker_args,
         enabled_tools=enabled_tools,
     )
     mcp_servers = [github_mcp]
@@ -196,7 +258,15 @@ async def main() -> None:
     else:
         # For general goals, respect trust_workspace setting
         if trust_workspace:
-            policies = [policy.allow_all()]
+            policies = [policy.deny(types.BuiltinTools.RUN_COMMAND.value, 
+                                    when=functools.partial(block_run_command, "rm")),
+                        policy.deny(types.BuiltinTools.RUN_COMMAND.value, 
+                                    when=functools.partial(block_run_command, "ssh")),
+                        policy.deny(types.BuiltinTools.RUN_COMMAND.value,
+                                    when=functools.partial(block_run_command, "sudo")),
+                        policy.deny(types.BuiltinTools.RUN_COMMAND.value,
+                                    when=functools.partial(block_run_command, "su")),
+                        policy.allow_all()]
         else:
             policies = policy.confirm_run_command()
 
